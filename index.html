@@ -464,10 +464,9 @@ if (tg) {
 // ────────────────────────────────────────────
 //  Данные пользователя
 // ────────────────────────────────────────────
-const user     = tg?.initDataUnsafe?.user ?? null;
-const userId   = user?.id ? String(user.id) : null;
+const user   = tg?.initDataUnsafe?.user ?? null;
+let   userId = user?.id ? String(user.id) : localStorage.getItem('vibro_uid') ?? null;
 
-// Определяем платформу: если tg не загружен — смотрим userAgent
 const platform = tg?.platform ?? (
   /iPhone|iPad|iPod/.test(navigator.userAgent) ? 'ios' :
   /Android/.test(navigator.userAgent)           ? 'android' : 'desktop'
@@ -507,11 +506,28 @@ const PATTERNS = [
 if (!userId) {
   document.getElementById('app').innerHTML = `
     <div class="error-screen">
-      <h2>⚠ НЕТ АВТОРИЗАЦИИ</h2>
-      <p>Приложение нужно открывать<br>через Telegram-бота.<br><br>
-         Напиши боту /start и нажми<br>кнопку «Открыть Vibro Controller»</p>
+      <h2>🆔 ВВЕДИ USER ID</h2>
+      <p>Платформа: <b>${platform}</b><br><br>
+         Узнай свой ID у бота командой /start<br>и введи его ниже:</p>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <input id="uidInput" type="number" placeholder="123456789"
+          style="background:#0D1520;border:1px solid #1A2A3A;color:#C8D8E8;
+                 padding:10px;border-radius:4px;font-family:monospace;font-size:14px;flex:1" />
+        <button onclick="applyUid()"
+          style="background:transparent;border:1px solid #00E5FF;color:#00E5FF;
+                 padding:10px 16px;border-radius:4px;cursor:pointer;font-family:monospace">OK</button>
+      </div>
     </div>`;
-  setStatus('НЕТ ДОСТУПА');
+  setStatus('НУЖЕН USER ID');
+  window.applyUid = function() {
+    const val = document.getElementById('uidInput').value.trim();
+    if (!val) return;
+    localStorage.setItem('vibro_uid', val);
+    location.reload();
+  };
+  document.getElementById('uidInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') window.applyUid();
+  });
 
 } else if (IS_CTRL) {
 
@@ -570,31 +586,136 @@ if (!userId) {
     }
   }
 
+  // ── Настройки ──
+  let selectedPattern = 'medium';
+  let continuousTimer = null;
+  let continuousInterval = 1000;
+  let isContinuous = false;
+
+  const INTENSITY_LEVELS = [
+    { id: 'soft',   label: 'SOFT',   color: '#4FC3F7' },
+    { id: 'light',  label: 'LIGHT',  color: '#00FF9D' },
+    { id: 'medium', label: 'MEDIUM', color: '#FFD600' },
+    { id: 'heavy',  label: 'HEAVY',  color: '#FF6B35' },
+    { id: 'rigid',  label: 'RIGID',  color: '#FF3860' },
+  ];
+
+  function getIntensityBySlider(val) {
+    const idx = Math.round((val / 100) * (INTENSITY_LEVELS.length - 1));
+    return INTENSITY_LEVELS[idx];
+  }
+
   window.doVibrate = async function(pattern) {
-    fireBtnAnimation(pattern);
-    await sendVibration(pattern);
+    fireBtnAnimation(pattern || selectedPattern);
+    await sendVibration(pattern || selectedPattern);
   }
 
   window.doBurst = async function(pattern, times, delay) {
     const burstBtns = document.querySelectorAll('.btn-burst');
     burstBtns.forEach(b => b.disabled = true);
-
     for (let i = 0; i < times; i++) {
       await sendVibration(pattern);
       fireBtnAnimation(pattern);
       if (i < times - 1) await new Promise(r => setTimeout(r, delay));
     }
-
     burstBtns.forEach(b => b.disabled = false);
+  }
+
+  window.toggleContinuous = function() {
+    isContinuous = !isContinuous;
+    const btn = document.getElementById('btnContinuous');
+    if (isContinuous) {
+      btn.textContent = '⏹ СТОП';
+      btn.style.borderColor = 'var(--red)';
+      btn.style.color = 'var(--red)';
+      btn.style.boxShadow = '0 0 20px rgba(255,56,96,.3)';
+      continuousTimer = setInterval(() => {
+        sendVibration(selectedPattern);
+        fireBtnAnimation(selectedPattern);
+      }, continuousInterval);
+    } else {
+      btn.textContent = '∞ ПОСТОЯННО';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+      btn.style.boxShadow = '';
+      clearInterval(continuousTimer);
+      continuousTimer = null;
+    }
+  }
+
+  window.onIntensityChange = function(val) {
+    const lvl = getIntensityBySlider(val);
+    selectedPattern = lvl.id;
+    document.getElementById('intensityLabel').textContent = lvl.label;
+    document.getElementById('intensityLabel').style.color = lvl.color;
+    document.getElementById('btnMain').style.borderColor = lvl.color;
+    document.getElementById('btnMain').style.color = lvl.color;
+    // обновляем интервал если идёт постоянный режим
+    if (isContinuous) {
+      clearInterval(continuousTimer);
+      continuousTimer = setInterval(() => {
+        sendVibration(selectedPattern);
+        fireBtnAnimation(selectedPattern);
+      }, continuousInterval);
+    }
+  }
+
+  window.onSpeedChange = function(val) {
+    // val: 1..100 → интервал: 2000ms..100ms
+    continuousInterval = Math.round(2000 - (val / 100) * 1900);
+    document.getElementById('speedLabel').textContent =
+      continuousInterval < 200  ? 'ОЧЕНЬ БЫСТРО' :
+      continuousInterval < 500  ? 'БЫСТРО' :
+      continuousInterval < 1000 ? 'СРЕДНЕ' :
+      continuousInterval < 1500 ? 'МЕДЛЕННО' : 'ОЧЕНЬ МЕДЛЕННО';
+    if (isContinuous) {
+      clearInterval(continuousTimer);
+      continuousTimer = setInterval(() => {
+        sendVibration(selectedPattern);
+        fireBtnAnimation(selectedPattern);
+      }, continuousInterval);
+    }
   }
 
   document.getElementById('app').innerHTML = `
     <div class="ctrl-view">
 
       <div class="section-label">// ОСНОВНАЯ КОМАНДА</div>
-      <button id="btnMain" class="btn-main" onclick="doVibrate('medium')">
+      <button id="btnMain" class="btn-main" onclick="doVibrate()">
         <span>▶ ВИБРИРОВАТЬ</span>
       </button>
+
+      <div class="section-label">// СИЛА УДАРА</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-size:10px;color:var(--dim);letter-spacing:2px">ИНТЕНСИВНОСТЬ</span>
+          <span id="intensityLabel" style="font-size:13px;font-weight:bold;letter-spacing:2px;color:var(--accent2)">MEDIUM</span>
+        </div>
+        <input type="range" min="0" max="100" value="60"
+          oninput="onIntensityChange(this.value)"
+          style="width:100%;accent-color:var(--accent2);height:4px;cursor:pointer" />
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-top:6px;letter-spacing:1px">
+          <span>SOFT</span><span>LIGHT</span><span>MEDIUM</span><span>HEAVY</span><span>RIGID</span>
+        </div>
+      </div>
+
+      <div class="section-label">// ПОСТОЯННЫЙ РЕЖИМ</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <span style="font-size:10px;color:var(--dim);letter-spacing:2px">СКОРОСТЬ</span>
+          <span id="speedLabel" style="font-size:11px;color:var(--accent);letter-spacing:1px">СРЕДНЕ</span>
+        </div>
+        <input type="range" min="1" max="100" value="47"
+          oninput="onSpeedChange(this.value)"
+          style="width:100%;accent-color:var(--accent);height:4px;cursor:pointer;margin-bottom:14px" />
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:14px;letter-spacing:1px">
+          <span>◀ МЕДЛЕННО</span><span>БЫСТРО ▶</span>
+        </div>
+        <button id="btnContinuous" class="btn-burst" onclick="toggleContinuous()"
+          style="width:100%;padding:16px;font-size:13px;letter-spacing:3px;border-color:var(--green);color:var(--green)">
+          ∞ ПОСТОЯННО
+        </button>
+      </div>
 
       <div class="section-label">// ПАТТЕРНЫ</div>
       <div class="patterns-grid">
@@ -609,7 +730,7 @@ if (!userId) {
 
       <div class="section-label">// СЕРИЯ</div>
       <div class="burst-row">
-        <button class="btn-burst" onclick="doBurst('medium',3,800)">× 3 ПОДРЯД</button>
+        <button class="btn-burst" onclick="doBurst(selectedPattern,3,800)">× 3 ПОДРЯД</button>
         <button class="btn-burst" onclick="doBurst('heavy',5,500)">SOS (× 5)</button>
       </div>
 
