@@ -7,7 +7,7 @@ import asyncio
 import threading
 import queue
 import json
-from flask import Flask, Response, request, jsonify, send_from_directory
+from flask import Flask, Response, request, jsonify, send_from_directory, stream_with_context
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -39,6 +39,7 @@ def api_vibrate():
         return jsonify({"ok": False, "error": "no user_id"}), 400
     try:
         _get_q(uid).put_nowait(pattern)
+        print(f"[vibrate] uid={uid} pattern={pattern}", flush=True)
         return jsonify({"ok": True})
     except queue.Full:
         return jsonify({"ok": False, "error": "queue full"}), 429
@@ -46,12 +47,14 @@ def api_vibrate():
 
 @flask_app.route("/api/events/<uid>")
 def api_events(uid: str):
+    @stream_with_context
     def generate():
         q = _get_q(uid)
+        print(f"[SSE] client connected uid={uid}", flush=True)
         yield "data: connected\n\n"
         while True:
             try:
-                pattern = q.get(timeout=25)
+                pattern = q.get(timeout=20)
                 payload = json.dumps({"pattern": pattern})
                 yield f"data: {payload}\n\n"
             except queue.Empty:
@@ -60,14 +63,10 @@ def api_events(uid: str):
     headers = {
         "Cache-Control":     "no-cache",
         "X-Accel-Buffering": "no",
+        "X-Buffering":       "no",
         "Connection":        "keep-alive",
     }
     return Response(generate(), mimetype="text/event-stream", headers=headers)
-
-
-# Flask в отдельном потоке
-def _run_flask():
-    flask_app.run(host="0.0.0.0", port=PORT, threaded=True)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -80,14 +79,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]]
     await update.message.reply_text(
         f"👋 Привет, {user.first_name}!\n\n"
+        f"🆔 Твой user\\_id: `{user.id}`\n\n"
         "Как пользоваться:\n"
-        "1️⃣ Открой приложение ниже на **iPhone** — он станет приёмником\n"
+        "1️⃣ Открой приложение на **iPhone** — он станет приёмником\n"
         "2️⃣ Открой на **ПК** — появится пульт управления\n"
         "3️⃣ Нажимай кнопки на ПК — iPhone завибрирует!\n\n"
-        "_Приложение само определяет устройство_",
+        "_Если не определяется автоматически — введи ID вручную_",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+def _run_flask():
+    flask_app.run(host="0.0.0.0", port=PORT, threaded=True)
 
 
 if __name__ == "__main__":
@@ -95,11 +99,9 @@ if __name__ == "__main__":
     print(f"🌐 WebApp URL: {WEBAPP_URL}")
     print(f"🚀 Flask port: {PORT}\n")
 
-    # Flask — в отдельном потоке
     flask_thread = threading.Thread(target=_run_flask, daemon=True)
     flask_thread.start()
 
-    # Бот — в главном потоке (fix для Python 3.13)
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", cmd_start))
     application.run_polling()
