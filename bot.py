@@ -1,7 +1,5 @@
 """
 Telegram Mini App — Vibro Controller
-Запуск: python bot.py
-Нужен публичный HTTPS URL (ngrok или VPS).
 """
 
 import os
@@ -13,19 +11,12 @@ from flask import Flask, Response, request, jsonify, send_from_directory
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# ─────────────────────────────────────────────────────────────
-#  Конфиг — задай через переменные окружения или .env
-# ─────────────────────────────────────────────────────────────
 BOT_TOKEN  = os.getenv("BOT_TOKEN",  "8401113714:AAF5twOGm-mU_NXPzOdtdpv2UT--8IfVLqE")
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://ТВОЙ_NGROK_ИЛИ_VPS.ngrok.io")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://tg-production-b635.up.railway.app")
 PORT       = int(os.getenv("PORT", 5000))
 
-# ─────────────────────────────────────────────────────────────
-#  Flask — HTTP сервер
-# ─────────────────────────────────────────────────────────────
 flask_app = Flask(__name__, static_folder="static")
 
-# Очереди SSE для каждого user_id
 _queues: dict[str, queue.Queue] = {}
 
 def _get_q(uid: str) -> queue.Queue:
@@ -41,14 +32,11 @@ def index():
 
 @flask_app.route("/api/vibrate", methods=["POST"])
 def api_vibrate():
-    """ПК нажимает кнопку → отправляем событие на iPhone через SSE."""
     data = request.get_json(force=True, silent=True) or {}
     uid     = str(data.get("user_id", ""))
     pattern = data.get("pattern", "medium")
-
     if not uid:
         return jsonify({"ok": False, "error": "no user_id"}), 400
-
     try:
         _get_q(uid).put_nowait(pattern)
         return jsonify({"ok": True})
@@ -58,7 +46,6 @@ def api_vibrate():
 
 @flask_app.route("/api/events/<uid>")
 def api_events(uid: str):
-    """SSE-стрим для iPhone — слушает вибро-команды."""
     def generate():
         q = _get_q(uid)
         yield "data: connected\n\n"
@@ -68,19 +55,21 @@ def api_events(uid: str):
                 payload = json.dumps({"pattern": pattern})
                 yield f"data: {payload}\n\n"
             except queue.Empty:
-                yield "data: ping\n\n"   # keep-alive
+                yield "data: ping\n\n"
 
     headers = {
-        "Cache-Control":    "no-cache",
+        "Cache-Control":     "no-cache",
         "X-Accel-Buffering": "no",
-        "Connection":       "keep-alive",
+        "Connection":        "keep-alive",
     }
     return Response(generate(), mimetype="text/event-stream", headers=headers)
 
 
-# ─────────────────────────────────────────────────────────────
-#  Telegram Bot
-# ─────────────────────────────────────────────────────────────
+# Flask в отдельном потоке
+def _run_flask():
+    flask_app.run(host="0.0.0.0", port=PORT, threaded=True)
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     keyboard = [[
@@ -101,25 +90,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def _run_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", cmd_start))
-    loop.run_until_complete(application.run_polling(close_loop=False))
-
-
-# ─────────────────────────────────────────────────────────────
-#  Запуск обоих сервисов
-# ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"🤖 Bot token : {BOT_TOKEN[:12]}...")
     print(f"🌐 WebApp URL: {WEBAPP_URL}")
     print(f"🚀 Flask port: {PORT}\n")
 
-    # Бот в отдельном потоке
-    bot_thread = threading.Thread(target=_run_bot, daemon=True)
-    bot_thread.start()
+    # Flask — в отдельном потоке
+    flask_thread = threading.Thread(target=_run_flask, daemon=True)
+    flask_thread.start()
 
-    # Flask — основной поток
-    flask_app.run(host="0.0.0.0", port=PORT, threaded=True)
+    # Бот — в главном потоке (fix для Python 3.13)
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", cmd_start))
+    application.run_polling()
