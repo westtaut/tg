@@ -83,8 +83,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Как пользоваться:\n"
         "1️⃣ Открой приложение на **iPhone** — он станет приёмником\n"
         "2️⃣ Открой на **ПК** — появится пульт управления\n"
-        "3️⃣ Нажимай кнопки на ПК — iPhone завибрирует!\n\n"
-        "_Если не определяется автоматически — введи ID вручную_",
+        "3️⃣ Нажимай кнопки на ПК — iPhone завибрирует!",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -94,14 +93,20 @@ def _run_flask():
     flask_app.run(host="0.0.0.0", port=PORT, threaded=True)
 
 
-async def main():
-    # Сбрасываем webhook перед запуском polling
+async def run_bot():
     application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", cmd_start))
+
+    # Сбрасываем webhook и запускаем polling вручную
+    await application.initialize()
     await application.bot.delete_webhook(drop_pending_updates=True)
     print("✅ Webhook сброшен", flush=True)
+    await application.updater.start_polling(drop_pending_updates=True)
+    await application.start()
+    print("✅ Бот запущен", flush=True)
 
-    application.add_handler(CommandHandler("start", cmd_start))
-    await application.run_polling(drop_pending_updates=True)
+    # Держим бота живым
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
@@ -114,4 +119,4 @@ if __name__ == "__main__":
     flask_thread.start()
 
     # Бот — в главном потоке
-    asyncio.run(main())
+    asyncio.run(run_bot())
