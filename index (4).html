@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Vibro Controller</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:       #070B10;
+      --surface:  #0D1520;
+      --border:   #1A2A3A;
+      --accent:   #00E5FF;
+      --accent2:  #FF6B35;
+      --green:    #00FF9D;
+      --red:      #FF3860;
+      --text:     #C8D8E8;
+      --dim:      #445566;
+      --mono:     'Share Tech Mono', monospace;
+      --head:     'Rajdhani', sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Scanline effect ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,229,255,.015) 2px,
+        rgba(0,229,255,.015) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ── Grid bg ── */
+    .grid-bg {
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,255,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,255,.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(13,21,32,.9);
+      backdrop-filter: blur(8px);
+      position: sticky; top: 0; z-index: 100;
+    }
+
+    .logo {
+      font-family: var(--head);
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: var(--accent);
+      text-shadow: 0 0 20px rgba(0,229,255,.5);
+    }
+
+    .mode-badge {
+      font-size: 10px;
+      letter-spacing: 2px;
+      padding: 4px 10px;
+      border-radius: 2px;
+      font-family: var(--mono);
+    }
+    .mode-badge.ctrl { background: rgba(255,107,53,.15); border: 1px solid var(--accent2); color: var(--accent2); }
+    .mode-badge.recv { background: rgba(0,255,157,.15); border: 1px solid var(--green); color: var(--green); }
+
+    /* ── Status bar ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-size: 11px;
+      color: var(--dim);
+      border-bottom: 1px solid var(--border);
+      letter-spacing: 1px;
+    }
+
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--dim);
+      transition: background .3s, box-shadow .3s;
+    }
+    .status-dot.online { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .status-dot.pulse  { animation: pulse-dot 1s infinite; }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .2; }
+    }
+
+    /* ═══════════════════════════════════
+       CONTROLLER UI (PC)
+    ═══════════════════════════════════ */
+    .ctrl-view { padding: 24px 20px; }
+
+    .section-label {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: var(--dim);
+      margin-bottom: 12px;
+    }
+
+    /* ── Big vibrate button ── */
+    .btn-main {
+      width: 100%;
+      padding: 22px;
+      background: transparent;
+      border: 2px solid var(--accent2);
+      border-radius: 4px;
+      color: var(--accent2);
+      font-family: var(--head);
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: all .2s;
+      margin-bottom: 20px;
+    }
+
+    .btn-main::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: var(--accent2);
+      opacity: 0;
+      transition: opacity .15s;
+    }
+
+    .btn-main:hover::before { opacity: .08; }
+    .btn-main:active::before { opacity: .2; }
+
+    .btn-main.firing {
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: 0 0 30px rgba(0,229,255,.3), inset 0 0 30px rgba(0,229,255,.05);
+      animation: btn-fire .3s ease-out;
+    }
+
+    @keyframes btn-fire {
+      0%   { transform: scale(1); }
+      30%  { transform: scale(.97); }
+      60%  { transform: scale(1.01); }
+      100% { transform: scale(1); }
+    }
+
+    .btn-main span { position: relative; z-index: 1; }
+
+    /* ── Pattern buttons ── */
+    .patterns-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .btn-pattern {
+      padding: 14px 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: all .15s;
+      text-align: center;
+    }
+
+    .btn-pattern .icon { font-size: 18px; display: block; margin-bottom: 6px; }
+
+    .btn-pattern:hover {
+      border-color: var(--accent);
+      background: rgba(0,229,255,.05);
+      color: var(--accent);
+    }
+
+    .btn-pattern:active {
+      background: rgba(0,229,255,.12);
+      transform: scale(.96);
+    }
+
+    .btn-pattern.fired {
+      border-color: var(--green);
+      background: rgba(0,255,157,.08);
+      color: var(--green);
+    }
+
+    /* ── Burst / repeat ── */
+    .burst-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .btn-burst {
+      padding: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+
+    .btn-burst:hover {
+      border-color: var(--accent2);
+      color: var(--accent2);
+    }
+
+    .btn-burst:active { transform: scale(.97); }
+    .btn-burst:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Log ── */
+    .log-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px;
+      height: 90px;
+      overflow-y: auto;
+      font-size: 11px;
+      color: var(--dim);
+    }
+
+    .log-entry { margin-bottom: 4px; }
+    .log-entry.ok { color: var(--green); }
+    .log-entry.err { color: var(--red); }
+    .log-time { color: var(--dim); margin-right: 6px; }
+
+    /* ═══════════════════════════════════
+       RECEIVER UI (iPhone)
+    ═══════════════════════════════════ */
+    .recv-view {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: calc(100vh - 100px);
+      padding: 40px 20px;
+      gap: 32px;
+    }
+
+    /* ── Sonar animation ── */
+    .sonar {
+      position: relative;
+      width: 180px; height: 180px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sonar-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid var(--accent);
+      animation: sonar-expand 2.5s ease-out infinite;
+      opacity: 0;
+    }
+
+    .sonar-ring:nth-child(1) { width: 80px; height: 80px; animation-delay: 0s; }
+    .sonar-ring:nth-child(2) { width: 130px; height: 130px; animation-delay: .5s; }
+    .sonar-ring:nth-child(3) { width: 180px; height: 180px; animation-delay: 1s; }
+
+    @keyframes sonar-expand {
+      0%   { opacity: .7; transform: scale(.5); }
+      100% { opacity: 0;  transform: scale(1); }
+    }
+
+    .sonar-core {
+      width: 60px; height: 60px;
+      border-radius: 50%;
+      background: rgba(0,229,255,.08);
+      border: 2px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      position: relative;
+      z-index: 1;
+      box-shadow: 0 0 30px rgba(0,229,255,.2);
+      transition: all .3s;
+    }
+
+    .sonar.vibrating .sonar-core {
+      background: rgba(0,229,255,.25);
+      box-shadow: 0 0 60px rgba(0,229,255,.6);
+      animation: core-shake .4s ease-in-out;
+    }
+
+    .sonar.vibrating .sonar-ring {
+      animation-duration: .6s;
+    }
+
+    @keyframes core-shake {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      15%  { transform: translate(-4px, 0) rotate(-3deg); }
+      30%  { transform: translate(4px, 0) rotate(3deg); }
+      45%  { transform: translate(-3px, 0); }
+      60%  { transform: translate(3px, 0); }
+      75%  { transform: translate(-2px, 0); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+
+    .recv-title {
+      font-family: var(--head);
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: var(--accent);
+      text-align: center;
+      text-shadow: 0 0 20px rgba(0,229,255,.3);
+    }
+
+    .recv-sub {
+      font-size: 11px;
+      color: var(--dim);
+      letter-spacing: 2px;
+      text-align: center;
+    }
+
+    .vibro-label {
+      font-family: var(--head);
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: var(--text);
+      min-height: 28px;
+      text-align: center;
+      transition: all .3s;
+    }
+
+    .vibro-label.active { color: var(--accent); text-shadow: 0 0 15px rgba(0,229,255,.5); }
+
+    .recv-count {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .count-num {
+      font-family: var(--head);
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--accent2);
+      line-height: 1;
+      text-shadow: 0 0 30px rgba(255,107,53,.4);
+    }
+
+    .count-lbl {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: var(--dim);
+    }
+
+    /* ── Conn state ── */
+    .conn-state {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      letter-spacing: 2px;
+    }
+
+    /* ── History list ── */
+    .history {
+      width: 100%;
+      max-width: 300px;
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+    }
+
+    .hist-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--dim);
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(26,42,58,.5);
+      animation: fade-in .3s ease-out;
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .hist-pattern { color: var(--text); }
+
+    /* ── Error screen ── */
+    .error-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      gap: 12px;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .error-screen h2 { font-family: var(--head); color: var(--red); font-size: 20px; letter-spacing: 2px; }
+    .error-screen p { font-size: 12px; color: var(--dim); line-height: 1.8; }
+  </style>
+</head>
+<body>
+<div class="grid-bg"></div>
+
+<div class="header">
+  <div class="logo">VIBRO</div>
+  <div id="modeBadge" class="mode-badge ctrl">CONTROLLER</div>
+</div>
+
+<div class="status-bar">
+  <div id="statusDot" class="status-dot"></div>
+  <span id="statusText">ИНИЦИАЛИЗАЦИЯ...</span>
+</div>
+
+<!-- ── Заглушка — меняется на нужный view ── -->
+<div id="app"></div>
+
+<script>
+// ────────────────────────────────────────────
+//  Безопасная инициализация Telegram WebApp
+// ────────────────────────────────────────────
+const tg = window?.Telegram?.WebApp ?? null;
+
+if (tg) {
+  try { tg.ready(); } catch(_) {}
+  try { tg.expand(); } catch(_) {}
+}
+
+// ────────────────────────────────────────────
+//  Данные пользователя
+// ────────────────────────────────────────────
+const user     = tg?.initDataUnsafe?.user ?? null;
+const userId   = user?.id ? String(user.id) : null;
+
+// Определяем платформу: если tg не загружен — смотрим userAgent
+const platform = tg?.platform ?? (
+  /iPhone|iPad|iPod/.test(navigator.userAgent) ? 'ios' :
+  /Android/.test(navigator.userAgent)           ? 'android' : 'desktop'
+);
+
+const IS_IOS      = platform === 'ios';
+const IS_RECEIVER = IS_IOS || platform === 'android';
+const IS_CTRL     = !IS_RECEIVER;
+
+// ────────────────────────────────────────────
+//  Helpers
+// ────────────────────────────────────────────
+function now() {
+  return new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function setStatus(text, online = false) {
+  document.getElementById('statusDot').className  = 'status-dot' + (online ? ' online' : '');
+  document.getElementById('statusText').textContent = text;
+}
+
+// ────────────────────────────────────────────
+//  Паттерны вибрации
+// ────────────────────────────────────────────
+const PATTERNS = [
+  { id: 'light',    icon: '🟢', label: 'LIGHT',    tip: 'слабый удар'   },
+  { id: 'medium',   icon: '🟡', label: 'MEDIUM',   tip: 'средний удар'  },
+  { id: 'heavy',    icon: '🔴', label: 'HEAVY',    tip: 'сильный удар'  },
+  { id: 'success',  icon: '✅', label: 'SUCCESS',  tip: 'успех'         },
+  { id: 'error',    icon: '❌', label: 'ERROR',    tip: 'ошибка'        },
+  { id: 'warning',  icon: '⚠️', label: 'WARNING',  tip: 'предупрежд.'  },
+];
+
+// ────────────────────────────────────────────
+//  Нет user_id — значит открыто не через бота
+// ────────────────────────────────────────────
+if (!userId) {
+  document.getElementById('app').innerHTML = `
+    <div class="error-screen">
+      <h2>⚠ НЕТ АВТОРИЗАЦИИ</h2>
+      <p>Приложение нужно открывать<br>через Telegram-бота.<br><br>
+         Напиши боту /start и нажми<br>кнопку «Открыть Vibro Controller»</p>
+    </div>`;
+  setStatus('НЕТ ДОСТУПА');
+
+} else if (IS_CTRL) {
+
+  // ══════════════════════════════════════════
+  //  CONTROLLER — PC / Desktop
+  // ══════════════════════════════════════════
+  document.getElementById('modeBadge').textContent = 'CONTROLLER';
+  document.getElementById('modeBadge').className   = 'mode-badge ctrl';
+
+  let logEntries = [];
+
+  function addLog(text, ok = true) {
+    logEntries.unshift({ text, ok, time: now() });
+    if (logEntries.length > 20) logEntries.pop();
+    renderLog();
+  }
+
+  function renderLog() {
+    const box = document.getElementById('logBox');
+    box.innerHTML = logEntries.map(e => `
+      <div class="log-entry ${e.ok ? 'ok' : 'err'}">
+        <span class="log-time">${e.time}</span>${e.text}
+      </div>`).join('');
+  }
+
+  async function sendVibration(pattern) {
+    try {
+      const res = await fetch('/api/vibrate', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ user_id: userId, pattern })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        addLog(`→ ${pattern.toUpperCase()} отправлено`, true);
+        return true;
+      } else {
+        addLog(`✗ ошибка: ${data.error}`, false);
+        return false;
+      }
+    } catch (e) {
+      addLog(`✗ нет связи с сервером`, false);
+      return false;
+    }
+  }
+
+  function fireBtnAnimation(id) {
+    const btn = document.getElementById('btnMain');
+    btn.classList.add('firing');
+    setTimeout(() => btn.classList.remove('firing'), 400);
+
+    const pat = document.getElementById('pat-' + id);
+    if (pat) {
+      pat.classList.add('fired');
+      setTimeout(() => pat.classList.remove('fired'), 500);
+    }
+  }
+
+  async function doVibrate(pattern) {
+    fireBtnAnimation(pattern);
+    await sendVibration(pattern);
+  }
+
+  async function doBurst(pattern, times, delay) {
+    const burstBtns = document.querySelectorAll('.btn-burst');
+    burstBtns.forEach(b => b.disabled = true);
+
+    for (let i = 0; i < times; i++) {
+      await sendVibration(pattern);
+      fireBtnAnimation(pattern);
+      if (i < times - 1) await new Promise(r => setTimeout(r, delay));
+    }
+
+    burstBtns.forEach(b => b.disabled = false);
+  }
+
+  document.getElementById('app').innerHTML = `
+    <div class="ctrl-view">
+
+      <div class="section-label">// ОСНОВНАЯ КОМАНДА</div>
+      <button id="btnMain" class="btn-main" onclick="doVibrate('medium')">
+        <span>▶ ВИБРИРОВАТЬ</span>
+      </button>
+
+      <div class="section-label">// ПАТТЕРНЫ</div>
+      <div class="patterns-grid">
+        ${PATTERNS.map(p => `
+          <button id="pat-${p.id}" class="btn-pattern" onclick="doVibrate('${p.id}')">
+            <span class="icon">${p.icon}</span>
+            ${p.label}<br>
+            <span style="color:var(--dim);font-size:9px">${p.tip}</span>
+          </button>
+        `).join('')}
+      </div>
+
+      <div class="section-label">// СЕРИЯ</div>
+      <div class="burst-row">
+        <button class="btn-burst" onclick="doBurst('medium',3,800)">× 3 ПОДРЯД</button>
+        <button class="btn-burst" onclick="doBurst('heavy',5,500)">SOS (× 5)</button>
+      </div>
+
+      <div class="section-label">// ЛОГ</div>
+      <div id="logBox" class="log-box"></div>
+    </div>`;
+
+  setStatus(`ГОТОВ · user_id: ${userId}`, true);
+  addLog('Контроллер инициализирован', true);
+
+} else {
+
+  // ══════════════════════════════════════════
+  //  RECEIVER — iPhone / Android
+  // ══════════════════════════════════════════
+  document.getElementById('modeBadge').textContent = 'RECEIVER';
+  document.getElementById('modeBadge').className   = 'mode-badge recv';
+
+  let vibrateCount = 0;
+  let history      = [];
+
+  const LABEL_MAP = {
+    light:   'LIGHT IMPACT',
+    medium:  'MEDIUM IMPACT',
+    heavy:   'HEAVY IMPACT',
+    success: 'SUCCESS',
+    error:   'ERROR',
+    warning: 'WARNING',
+  };
+
+  function haptic(pattern) {
+    const hf = tg?.HapticFeedback ?? null;
+    if (hf) {
+      try {
+        switch (pattern) {
+          case 'light':   hf.impactOccurred('light');           break;
+          case 'medium':  hf.impactOccurred('medium');          break;
+          case 'heavy':   hf.impactOccurred('heavy');           break;
+          case 'success': hf.notificationOccurred('success');   break;
+          case 'error':   hf.notificationOccurred('error');     break;
+          case 'warning': hf.notificationOccurred('warning');   break;
+          case 'rigid':   hf.impactOccurred('rigid');           break;
+          case 'soft':    hf.impactOccurred('soft');            break;
+          default:        hf.impactOccurred('medium');
+        }
+        return;
+      } catch(e) { console.warn('HapticFeedback error:', e); }
+    }
+    // Fallback: Web Vibration API
+    if (navigator.vibrate) {
+      const ms = { light: 50, medium: 100, heavy: 200,
+                   success: [80,60,80], error: [100,50,100,50,100],
+                   warning: [80,50,80] };
+      navigator.vibrate(ms[pattern] ?? 100);
+    }
+  }
+
+  function onVibrate(pattern) {
+    haptic(pattern);
+    vibrateCount++;
+
+    // Анимация
+    const sonar = document.getElementById('sonar');
+    sonar.classList.add('vibrating');
+    setTimeout(() => sonar.classList.remove('vibrating'), 600);
+
+    const lbl = document.getElementById('vibroLabel');
+    lbl.textContent = LABEL_MAP[pattern] || pattern.toUpperCase();
+    lbl.classList.add('active');
+    setTimeout(() => { lbl.classList.remove('active'); lbl.textContent = 'ОЖИДАНИЕ...'; }, 1500);
+
+    document.getElementById('countNum').textContent = vibrateCount;
+
+    // История
+    history.unshift({ pattern: LABEL_MAP[pattern] || pattern, time: now() });
+    if (history.length > 5) history.pop();
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const el = document.getElementById('historyList');
+    el.innerHTML = history.map(h => `
+      <div class="hist-item">
+        <span class="hist-pattern">${h.pattern}</span>
+        <span>${h.time}</span>
+      </div>`).join('');
+  }
+
+  document.getElementById('app').innerHTML = `
+    <div class="recv-view">
+      <div id="sonar" class="sonar">
+        <div class="sonar-ring"></div>
+        <div class="sonar-ring"></div>
+        <div class="sonar-ring"></div>
+        <div class="sonar-core">📳</div>
+      </div>
+
+      <div>
+        <div class="recv-title">ПРИЁМНИК</div>
+        <div class="recv-sub">ОЖИДАЮ КОМАНДЫ С ПК</div>
+      </div>
+
+      <div id="vibroLabel" class="vibro-label">ОЖИДАНИЕ...</div>
+
+      <div class="recv-count">
+        <div id="countNum" class="count-num">0</div>
+        <div class="count-lbl">ВИБРАЦИЙ ПОЛУЧЕНО</div>
+      </div>
+
+      <div class="conn-state">
+        <div id="connDot" class="status-dot pulse"></div>
+        <span id="connText">ПОДКЛЮЧЕНИЕ...</span>
+      </div>
+
+      <div id="historyList" class="history"></div>
+    </div>`;
+
+  // ── SSE подключение ──
+  function connect() {
+    const es = new EventSource(`/api/events/${userId}`);
+
+    es.onopen = () => {
+      document.getElementById('connDot').className  = 'status-dot online';
+      document.getElementById('connText').textContent = 'ОНЛАЙН · ЖДУ КОМАНД';
+      setStatus('ПОДКЛЮЧЕНО', true);
+    };
+
+    es.onmessage = (e) => {
+      if (e.data === 'ping' || e.data === 'connected') return;
+      try {
+        const { pattern } = JSON.parse(e.data);
+        onVibrate(pattern);
+      } catch (_) {}
+    };
+
+    es.onerror = () => {
+      document.getElementById('connDot').className  = 'status-dot pulse';
+      document.getElementById('connText').textContent = 'ПЕРЕПОДКЛЮЧЕНИЕ...';
+      setStatus('НАРУШЕНА СВЯЗЬ');
+      es.close();
+      setTimeout(connect, 3000);
+    };
+  }
+
+  connect();
+  setStatus('ПРИЁМНИК АКТИВЕН', true);
+}
+</script>
+</body>
+</html>
