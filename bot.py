@@ -94,14 +94,24 @@ def _run_flask():
     flask_app.run(host="0.0.0.0", port=PORT, threaded=True)
 
 
+async def main():
+    # Сбрасываем webhook перед запуском polling
+    application = Application.builder().token(BOT_TOKEN).build()
+    await application.bot.delete_webhook(drop_pending_updates=True)
+    print("✅ Webhook сброшен", flush=True)
+
+    application.add_handler(CommandHandler("start", cmd_start))
+    await application.run_polling(drop_pending_updates=True)
+
+
 if __name__ == "__main__":
     print(f"🤖 Bot token : {BOT_TOKEN[:12]}...")
     print(f"🌐 WebApp URL: {WEBAPP_URL}")
     print(f"🚀 Flask port: {PORT}\n")
 
+    # Flask — в отдельном потоке
     flask_thread = threading.Thread(target=_run_flask, daemon=True)
     flask_thread.start()
 
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", cmd_start))
-    application.run_polling()
+    # Бот — в главном потоке
+    asyncio.run(main())
