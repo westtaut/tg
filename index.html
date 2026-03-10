@@ -464,10 +464,10 @@ if (tg) {
 // ────────────────────────────────────────────
 //  Данные пользователя
 // ────────────────────────────────────────────
-const user   = tg?.initDataUnsafe?.user ?? null;
-let   userId = user?.id ? String(user.id) : localStorage.getItem('vibro_uid') ?? null;
+const user     = tg?.initDataUnsafe?.user ?? null;
+const userId   = user?.id ? String(user.id) : null;
 
-// Определяем платформу
+// Определяем платформу: если tg не загружен — смотрим userAgent
 const platform = tg?.platform ?? (
   /iPhone|iPad|iPod/.test(navigator.userAgent) ? 'ios' :
   /Android/.test(navigator.userAgent)           ? 'android' : 'desktop'
@@ -505,38 +505,13 @@ const PATTERNS = [
 //  Нет user_id — значит открыто не через бота
 // ────────────────────────────────────────────
 if (!userId) {
-  // Показываем форму ручного ввода user_id
   document.getElementById('app').innerHTML = `
     <div class="error-screen">
-      <h2>🆔 ВВЕДИ USER ID</h2>
-      <p>Платформа: <b>${platform}</b><br><br>
-         Узнай свой ID у бота командой /start<br>
-         и введи его ниже:</p>
-      <div style="display:flex;gap:8px;margin-top:16px">
-        <input id="uidInput" type="number" placeholder="123456789"
-          style="background:#0D1520;border:1px solid #1A2A3A;color:#C8D8E8;
-                 padding:10px;border-radius:4px;font-family:monospace;font-size:14px;flex:1" />
-        <button onclick="applyUid()"
-          style="background:transparent;border:1px solid #00E5FF;color:#00E5FF;
-                 padding:10px 16px;border-radius:4px;cursor:pointer;font-family:monospace">
-          OK
-        </button>
-      </div>
-      <p style="margin-top:12px;font-size:10px;color:#445566">
-        Режим: ${IS_CTRL ? 'CONTROLLER (ПК)' : 'RECEIVER (телефон)'}
-      </p>
+      <h2>⚠ НЕТ АВТОРИЗАЦИИ</h2>
+      <p>Приложение нужно открывать<br>через Telegram-бота.<br><br>
+         Напиши боту /start и нажми<br>кнопку «Открыть Vibro Controller»</p>
     </div>`;
-  setStatus('НУЖЕН USER ID');
-
-  window.applyUid = function() {
-    const val = document.getElementById('uidInput').value.trim();
-    if (!val) return;
-    localStorage.setItem('vibro_uid', val);
-    location.reload();
-  };
-  document.getElementById('uidInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') window.applyUid();
-  });
+  setStatus('НЕТ ДОСТУПА');
 
 } else if (IS_CTRL) {
 
@@ -595,12 +570,12 @@ if (!userId) {
     }
   }
 
-  async function doVibrate(pattern) {
+  window.doVibrate = async function(pattern) {
     fireBtnAnimation(pattern);
     await sendVibration(pattern);
   }
 
-  async function doBurst(pattern, times, delay) {
+  window.doBurst = async function(pattern, times, delay) {
     const burstBtns = document.querySelectorAll('.btn-burst');
     burstBtns.forEach(b => b.disabled = true);
 
