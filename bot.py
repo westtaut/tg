@@ -16,7 +16,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # ─────────────────────────────────────────────────────────────
 #  Конфиг — задай через переменные окружения или .env
 # ─────────────────────────────────────────────────────────────
-BOT_TOKEN  = os.getenv("BOT_TOKEN",  "ВСТАВЬ_ТОКЕН_БОТА_СЮДА")
+BOT_TOKEN  = os.getenv("BOT_TOKEN",  "8401113714:AAF5twOGm-mU_NXPzOdtdpv2UT--8IfVLqE")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://ТВОЙ_NGROK_ИЛИ_VPS.ngrok.io")
 PORT       = int(os.getenv("PORT", 5000))
 
